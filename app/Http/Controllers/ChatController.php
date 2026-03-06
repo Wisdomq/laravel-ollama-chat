@@ -3,9 +3,10 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use App\Models\Chat;
+use Laravel\Ai\Ai;
+use Laravel\Ai\Messages\Message;
 
 class ChatController extends Controller
 {
@@ -13,6 +14,8 @@ class ChatController extends Controller
     {
         $sessionId = Str::uuid()->toString();
         $request->session()->put('chat_session_id', $sessionId);
+
+        \Log::info('New session initialized: ' . $sessionId);
 
         return response()->json([
             'session_id' => $sessionId,
@@ -75,6 +78,29 @@ class ChatController extends Controller
         ]);
     }
 
+    public function deleteSession(Request $request)
+    {
+        $sessionId = $request->input('session_id');
+
+        if (!$sessionId) {
+            return response()->json([
+                'error' => 'No session ID provided',
+            ], 400);
+        }
+
+        // Delete all messages for this session
+        Chat::where('session_id', $sessionId)->delete();
+
+        // Clear from session if it was the current one
+        if ($request->session()->get('chat_session_id') === $sessionId) {
+            $request->session()->forget('chat_session_id');
+        }
+
+        return response()->json([
+            'message' => 'Session deleted successfully',
+        ]);
+    }
+
     public function chat(Request $request)
     {
         $sessionId = $request->session()->get('chat_session_id');
@@ -84,70 +110,65 @@ class ChatController extends Controller
             $request->session()->put('chat_session_id', $sessionId);
         }
 
+        \Log::info('Chat request for session: ' . $sessionId);
         $prompt = $request->input('message');
-
-        // Get last 6 messages from current session only
-        $history = Chat::where('session_id', $sessionId)
-            ->latest()
-            ->take(6)
-            ->get()
-            ->reverse();
-
-        $messages = [];
-
-        // System instruction
-        $messages[] = [
-            'role' => 'system',
-            'content' => 'You are a concise and friendly assistant.'
-        ];
-
-        foreach ($history as $chat) {
-            $messages[] = [
-                'role' => 'user',
-                'content' => $chat->user_message
-            ];
-
-            $messages[] = [
-                'role' => 'assistant',
-                'content' => $chat->bot_reply
-            ];
+        $meta = [];
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $path = $file->store('attachments', 'public');
+            $meta['attachment'] = $path;
         }
 
-        // Add new message
-        $messages[] = [
-            'role' => 'user',
-            'content' => $prompt
-        ];
+        try {
+            $agent = new \App\Ai\Agents\ChatbotAgent($sessionId);
 
-        $response = Http::timeout(120)->post(
-            'http://host.docker.internal:11434/api/chat',
-            [
-                'model' => 'tinyllama:latest',
-                'messages' => $messages,
-                'stream' => false
-            ]
-        );
+            \Log::info('Using Mistral provider with open-mistral-7b model for session: ' . $sessionId);
+            \Log::info('User prompt: ' . $prompt);
+            $response = $agent->prompt($prompt, provider: 'mistral', model: 'open-mistral-7b');
 
-        if (!$response->successful()) {
+            \Log::info('AI Response object: ' . get_class($response));
+            \Log::info('AI Response type: ' . gettype($response));
+            
+            // Handle structured output (array/object)
+            if (is_array($response) || is_object($response)) {
+                $structured = (array) $response;
+                \Log::info('Structured response: ' . json_encode($structured));
+                
+                $reply = $structured['reply'] ?? '';
+                $confidence = $structured['confidence'] ?? 0;
+                $thinking = $structured['thinking'] ?? '';
+                
+                \Log::info('Extracted reply: ' . $reply);
+                \Log::info('Confidence: ' . $confidence);
+                \Log::info('Thinking: ' . $thinking);
+            } else {
+                // Fallback for string responses
+                $reply = (string) $response;
+                $confidence = 1.0;
+                $thinking = 'Direct response';
+            }
+
+            // Store in Chat model
+            Chat::create([
+                'session_id' => $sessionId,
+                'user_message' => $prompt,
+                'bot_reply' => trim($reply),
+                'meta' => $meta,
+            ]);
+
             return response()->json([
-                'reply' => 'Error contacting Ollama'
+                'session_id' => $sessionId,
+                'reply' => trim($reply),
+                'confidence' => $confidence,
+                'thinking' => $thinking,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('AI SDK Error: ' . $e->getMessage());
+            \Log::error('Stack trace: ' . $e->getTraceAsString());
+            return response()->json([
+                'reply' => 'Error: ' . $e->getMessage()
             ], 500);
         }
-
-        $data = $response->json();
-
-        $reply = $data['message']['content'] ?? 'No response';
-
-        Chat::create([
-            'session_id' => $sessionId,
-            'user_message' => $prompt,
-            'bot_reply' => trim($reply),
-        ]);
-
-        return response()->json([
-            'session_id' => $sessionId,
-            'reply' => trim($reply),
-        ]);
     }
 
     public function chatStream(Request $request)
@@ -161,110 +182,66 @@ class ChatController extends Controller
 
         $prompt = $request->input('message');
 
-        // Get last 6 messages from current session only
-        $history = Chat::where('session_id', $sessionId)
-            ->latest()
-            ->take(6)
-            ->get()
-            ->reverse();
+        \Log::info('STREAM Chat request for session: ' . $sessionId);
+        \Log::info('STREAM User prompt: ' . $prompt);
 
-        $messages = [];
+        try {
+            $agent = new \App\Ai\Agents\ChatbotAgent($sessionId);
 
-        // System instruction
-        $messages[] = [
-            'role' => 'system',
-            'content' => 'You are a concise and friendly assistant.'
-        ];
+            \Log::info('STREAM Using Mistral provider with open-mistral-7b model');
 
-        foreach ($history as $chat) {
-            $messages[] = [
-                'role' => 'user',
-                'content' => $chat->user_message
-            ];
+            return response()->stream(function () use ($agent, $prompt, $sessionId) {
+                \Log::info('STREAM Starting stream processing');
+                $fullResponse = '';
 
-            $messages[] = [
-                'role' => 'assistant',
-                'content' => $chat->bot_reply
-            ];
-        }
+                try {
+                    foreach ($agent->stream($prompt, provider: 'mistral', model: 'open-mistral-7b') as $event) {
+                        \Log::info('STREAM Event received: ' . get_class($event));
+                        // Handle different types of stream events
+                        if ($event instanceof \Laravel\Ai\Streaming\Events\TextDelta) {
+                            $chunk = $event->delta;
+                            \Log::info('STREAM Chunk: ' . $chunk);
+                            $fullResponse .= $chunk;
 
-        // Add new message
-        $messages[] = [
-            'role' => 'user',
-            'content' => $prompt
-        ];
-
-        return response()->stream(function () use ($sessionId, $prompt, $messages) {
-            $fullReply = '';
-
-            try {
-                // Use cURL for proper streaming support
-                $ch = curl_init();
-                curl_setopt($ch, CURLOPT_URL, 'http://host.docker.internal:11434/api/chat');
-                curl_setopt($ch, CURLOPT_POST, true);
-                curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-                    'model' => 'tinyllama:latest',
-                    'messages' => $messages,
-                    'stream' => true,
-                ]));
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, false);
-                curl_setopt($ch, CURLOPT_BINARYTRANSFER, true);
-                curl_setopt($ch, CURLOPT_TIMEOUT, 120);
-                curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-
-                // Handle streaming output on the fly
-                curl_setopt($ch, CURLOPT_WRITEFUNCTION, function ($curl, $chunk) use (&$fullReply) {
-                    $lines = explode("\n", $chunk);
-
-                    foreach ($lines as $line) {
-                        if (empty($line)) {
-                            continue;
-                        }
-
-                        $data = json_decode($line, true);
-
-                        if ($data && isset($data['message']['content'])) {
-                            $content = $data['message']['content'];
-                            $fullReply .= $content;
-
-                            echo "data: " . json_encode(['chunk' => $content]) . "\n\n";
+                            // Send chunk as SSE
+                            echo "data: " . json_encode(['chunk' => $chunk]) . "\n\n";
                             ob_flush();
                             flush();
+                        } else {
+                            \Log::info('STREAM Non-text event: ' . get_class($event));
                         }
                     }
 
-                    return strlen($chunk);
-                });
-
-                $result = curl_exec($ch);
-
-                if (curl_errno($ch)) {
-                    echo "data: " . json_encode(['error' => 'cURL Error: ' . curl_error($ch)]) . "\n\n";
-                    curl_close($ch);
-                    return;
+                    \Log::info('STREAM Stream completed, full response: ' . $fullResponse);
+                } catch (\Exception $e) {
+                    \Log::error('STREAM Inner exception: ' . $e->getMessage());
+                    echo "data: " . json_encode(['error' => 'Stream failed: ' . $e->getMessage()]) . "\n\n";
+                    ob_flush();
+                    flush();
                 }
 
-                curl_close($ch);
-
-                // Save complete message to database
-                if (!empty($fullReply)) {
-                    Chat::create([
-                        'session_id' => $sessionId,
-                        'user_message' => $prompt,
-                        'bot_reply' => trim($fullReply),
-                    ]);
-                }
-
-                // Final message indicating completion
+                // Send completion signal
                 echo "data: " . json_encode(['done' => true]) . "\n\n";
-            } catch (\Exception $e) {
-                echo "data: " . json_encode(['error' => 'Stream error: ' . $e->getMessage()]) . "\n\n";
-            }
-        }, 200, [
-            'Cache-Control' => 'no-cache',
-            'Content-Type' => 'text/event-stream',
-            'Connection' => 'keep-alive',
-        ]);
+                ob_flush();
+                flush();
+
+                // Save to database after streaming completes
+                Chat::create([
+                    'session_id' => $sessionId,
+                    'user_message' => $prompt,
+                    'bot_reply' => trim($fullResponse),
+                ]);
+                \Log::info('STREAM Saved to database');
+            }, 200, [
+                'Content-Type' => 'text/event-stream',
+                'Cache-Control' => 'no-cache',
+                'Connection' => 'keep-alive',
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('STREAM AI SDK Error: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Stream error: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }
