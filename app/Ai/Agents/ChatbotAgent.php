@@ -7,22 +7,18 @@ use Laravel\Ai\Attributes\Model;
 use Laravel\Ai\Attributes\Provider;
 use Laravel\Ai\Contracts\Agent;
 use Laravel\Ai\Contracts\Conversational;
-use Laravel\Ai\Contracts\HasTools;
-use Laravel\Ai\Enums\Lab;
 use Laravel\Ai\Messages\Message;
 use Laravel\Ai\Promptable;
-use Illuminate\Contracts\JsonSchema\JsonSchema;
 
-use App\Ai\Tools\CalculatorTool;
-
-class ChatbotAgent implements Agent, Conversational, HasTools
+/**
+ * ChatbotAgent
+ *
+ * Handles conversational responses and natural-language wrapping of
+ * AgentGeneral skill results. Tool routing is handled upstream in
+ * ChatController::classifyIntent() — this agent just talks.
+ */
+class ChatbotAgent implements Agent, Conversational
 {
-    public function tools(): iterable
-    {
-        return [
-            new CalculatorTool(),
-        ];
-    }
     use Promptable;
 
     public function __construct(
@@ -30,15 +26,22 @@ class ChatbotAgent implements Agent, Conversational, HasTools
     ) {}
 
     /**
-     * Get the instructions that the agent should follow.
+     * System instructions for the agent.
      */
     public function instructions(): string
     {
-        return 'You are a concise and friendly assistant. Keep your responses helpful and to the point. Reply with plain text, not JSON.';
+        return <<<INSTRUCTIONS
+        You are a concise, friendly, and helpful assistant.
+        - Keep responses natural and to the point.
+        - Reply in plain text — no JSON, no markdown headers.
+        - When presenting results from a skill or tool, present them clearly
+          and naturally without adding information that wasn't in the result.
+        - For conversational messages, reply warmly and helpfully.
+        INSTRUCTIONS;
     }
 
     /**
-     * Get the list of messages comprising the conversation so far.
+     * Load conversation history for this session.
      */
     public function messages(): iterable
     {
@@ -48,6 +51,7 @@ class ChatbotAgent implements Agent, Conversational, HasTools
 
         $chats = Chat::where('session_id', $this->conversationId)
             ->orderBy('created_at')
+            ->limit(20) // Keep context window manageable
             ->get();
 
         $messages = [];
@@ -57,8 +61,7 @@ class ChatbotAgent implements Agent, Conversational, HasTools
                 $messages[] = new Message('assistant', $chat->bot_reply);
             }
         }
+
         return $messages;
     }
-
-    // Only define schema if structured output is needed (non-streaming)
 }

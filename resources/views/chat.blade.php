@@ -1,513 +1,406 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <title>AI Chatbot</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f9f7; }
-        .container { display: flex; height: 100vh; }
-        .sidebar { width: 280px; background: #1e4d2b; color: white; padding: 20px; overflow-y: auto; border-right: 2px solid #3d6b3a; display: flex; flex-direction: column; }
-        .sidebar h3 { color: #a8d5ba; margin-bottom: 20px; font-size: 20px; }
-        .sessions-list { flex: 1; overflow-y: auto; }
-        .session-item { padding: 12px; margin: 8px 0; background: #2d5a38; cursor: pointer; border-radius: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 3px solid transparent; transition: all 0.3s; }
-        .session-item:hover { background: #35694a; border-left-color: #7ec87f; }
-        .session-item.active { background: #3d6b3a; border-left-color: #7ec87f; font-weight: bold; }
-        .session-controls { margin-top: 10px; display: flex; gap: 5px; }
-        .session-delete-btn { padding: 4px 8px; background: #5a3a3a; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; }
-        .session-delete-btn:hover { background: #6d4747; }
-        .main { flex: 1; display: flex; flex-direction: column; }
-        .header { background: linear-gradient(135deg, #3d6b3a 0%, #2d5a38 100%); padding: 20px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-        .header h2 { margin-bottom: 5px; }
-        .session-id { font-size: 12px; opacity: 0.85; }
-        .header-controls { margin-top: 10px; display: flex; gap: 10px; }
-        .header-btn { padding: 8px 12px; background: white; color: #3d6b3a; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; transition: all 0.3s; }
-        .header-btn:hover { background: #f0f6f3; }
-        .header-btn.danger { background: #8b5a5a; color: white; }
-        .header-btn.danger:hover { background: #9e6a6a; }
-        .chat-area { flex: 1; padding: 20px; overflow-y: auto; background: #f9fbfa; }
-        .message { margin: 15px 0; line-height: 1.6; display: flex; animation: slideIn 0.3s ease-out; }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .message-content { padding: 12px 16px; border-radius: 8px; max-width: 70%; word-wrap: break-word; position: relative; }
-        .user-msg { justify-content: flex-end; }
-        .user-msg .message-content { background: #3d6b3a; color: white; }
-        .bot-msg { justify-content: flex-start; }
-        .bot-msg .message-content { background: #f0f6f3; color: #2d5a38; border: 1px solid #dbe8e2; }
-        .message-meta { display: flex; align-items: center; gap: 10px; margin-top: 8px; font-size: 12px; }
-        .confidence-badge { display: inline-flex; align-items: center; gap: 4px; background: #e8f4ed; color: #2d5a38; padding: 4px 8px; border-radius: 12px; font-weight: bold; }
-        .confidence-high { background: #d4edda; color: #155724; }
-        .confidence-medium { background: #fff3cd; color: #856404; }
-        .confidence-low { background: #f8d7da; color: #721c24; }
-        .thinking-text { display: block; font-size: 11px; color: #5a7d5f; font-style: italic; margin-top: 6px; padding-top: 6px; border-top: 1px solid #dbe8e2; }
-        .typing-indicator { display: flex; align-items: center; gap: 4px; padding: 12px 16px; }
-        .typing-dot { width: 8px; height: 8px; border-radius: 50%; background: #7ec87f; animation: typing 1.4s infinite; }
-        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes typing { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
-        .message-actions { display: flex; gap: 5px; margin-top: 5px; opacity: 0; transition: opacity 0.3s; }
-        .bot-msg:hover .message-actions { opacity: 1; }
-        .copy-btn { padding: 4px 8px; background: #7ec87f; color: white; border: none; border-radius: 3px; cursor: pointer; font-size: 11px; }
-        .copy-btn:hover { background: #6db86e; }
-        .copy-btn.copied { background: #4a9d6f; }
-        .input-area { display: flex; gap: 10px; padding: 20px; border-top: 2px solid #dbe8e2; background: #f9fbfa; }
-        input[type="text"] { flex: 1; padding: 12px; border: 2px solid #dbe8e2; border-radius: 6px; font-size: 14px; transition: border-color 0.3s; background: white; }
-        input[type="text"]:focus { outline: none; border-color: #7ec87f; box-shadow: 0 0 0 2px rgba(126, 200, 127, 0.1); }
-        .send-btn { padding: 12px 24px; background: #3d6b3a; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: all 0.3s; }
-        .send-btn:hover { background: #2d5a38; transform: scale(1.02); }
-        .send-btn:disabled { background: #b8d4ba; cursor: not-allowed; transform: scale(1); }
-        .stop-btn { padding: 12px 24px; background: #a09070; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; display: none; }
-        .stop-btn:hover { background: #8b7960; }
-        .error-msg { background: #e8f4ed; color: #2d5a38; padding: 12px 16px; border-radius: 6px; border-left: 4px solid #7ec87f; }
-        .new-session-btn { width: 100%; padding: 12px; background: #3d6b3a; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 20px; transition: all 0.3s; }
-        .new-session-btn:hover { background: #2d5a38; }
-        .sidebar-footer { margin-top: auto; padding-top: 10px; border-top: 1px solid #333; font-size: 12px; color: #999; }
-        @media (max-width: 768px) {
-            .container { flex-direction: column; }
-            .sidebar { width: 100%; border-right: none; border-bottom: 3px solid #dc3545; }
-            .message-content { max-width: 85%; }
-            .header-controls { flex-wrap: wrap; }
-        }
-        @media (max-width: 480px) {
-            .message-content { max-width: 95%; }
-            input[type="text"] { font-size: 16px; } /* Prevent zoom on iOS */
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="sidebar">
-            <div>
-                <h3>💬 AI Chat</h3>
-                <button class="new-session-btn" onclick="initNewSession()">+ New Chat</button>
-                <div class="sessions-list" id="sessionsList"></div>
+@extends('layouts.app')
+
+@section('title', 'Chat · AI Studio')
+
+@push('styles')
+<style>
+    .chat-shell { display: flex; height: calc(100vh - 52px); }
+    .chat-sidebar { width: 260px; min-width: 260px; }
+    .chat-sidebar .new-session-btn { width: 100%; margin-bottom: 16px; }
+    .sessions-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+    .session-item {
+        padding: 15px 19px;
+        background: var(--green-800);
+        cursor: pointer;
+        border-radius: var(--radius-md);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 13px;
+        display: flex;              
+        justify-content: space-between; 
+        align-items: center;
+        border-left: 3px solid transparent;
+        transition: all var(--transition);
+        color: #c8e6c9;
+        margin-bottom: 8px;
+    }
+    .session-item:hover { background: var(--green-600); border-left-color: var(--green-400); }
+    .session-item.active { background: var(--green-700); border-left-color: var(--green-400); font-weight: 600; color: white; }
+    .chat-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .chat-topbar {
+        background: linear-gradient(135deg, var(--green-700), var(--green-800));
+        padding: 12px 18px;
+        color: white;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+    .chat-topbar-left h2 { font-size: 16px; }
+    .chat-topbar-left .session-id { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+    .chat-topbar-actions { display: flex; gap: 6px; }
+    .topbar-btn { padding: 6px 12px; background: rgba(255,255,255,0.15); color: white; border: none; border-radius: var(--radius-md); cursor: pointer; font-size: 12px; font-weight: 600; transition: background var(--transition); }
+    .topbar-btn:hover { background: rgba(255,255,255,0.25); }
+    .topbar-btn.danger { background: rgba(139,90,90,0.6); }
+    .topbar-btn.danger:hover { background: rgba(139,90,90,0.9); }
+    .message-meta-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .confidence-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
+    .confidence-high   { background: #d4edda; color: #155724; }
+    .confidence-medium { background: #fff3cd; color: #856404; }
+    .confidence-low    { background: #f8d7da; color: #721c24; }
+    .thinking-text { display: block; font-size: 11px; color: var(--green-muted); font-style: italic; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--green-100); }
+    .message-actions { display: flex; gap: 4px; margin-top: 4px; opacity: 0; transition: opacity var(--transition); }
+    .bot-msg:hover .message-actions { opacity: 1; }
+    .copy-btn { padding: 3px 8px; background: var(--green-400); color: white; border: none; border-radius: var(--radius-sm); cursor: pointer; font-size: 11px; }
+    .copy-btn:hover { background: #6db86e; }
+    .copy-btn.copied { background: #4a9d6f; }
+    .stop-btn { padding: 11px 18px; background: #a09070; color: white; border: none; border-radius: var(--radius-md); cursor: pointer; font-weight: 700; display: none; font-size: 13px; }
+    .stop-btn:hover { background: #8b7960; }
+</style>
+@endpush
+
+@section('content')
+<div class="chat-shell">
+
+    {{-- Sidebar --}}
+    <div class="sidebar chat-sidebar">
+        <button class="btn btn-primary new-session-btn" onclick="initNewSession()">+ New Chat</button>
+        <div class="sessions-list" id="sessionsList"></div>
+        <div class="sidebar-footer">Mistral AI · open-mistral-7b</div>
+    </div>
+
+    {{-- Main --}}
+    <div class="chat-main">
+        <div class="chat-topbar">
+            <div class="chat-topbar-left">
+                <h2>Let's Chat!</h2>
+                <div class="session-id">Session: <span id="currentSessionId">loading...</span></div>
             </div>
-            <div class="sidebar-footer">
-                Mistral AI<br>
-                open-mistral-7b
+            <div class="chat-topbar-actions">
+                <button class="topbar-btn" onclick="copySessionId()">&#x1F4CB; Copy ID</button>
+                <button class="topbar-btn" onclick="clearSession()">&#x1F5D1; Clear</button>
+                <button class="topbar-btn danger" onclick="deleteSession()">&#x274C; Delete</button>
             </div>
         </div>
-        <div class="main">
-            <div class="header">
-                <h2>Conversation</h2>
-                <div class="session-id">Session: <span id="currentSessionId">loading...</span></div>
-                <div class="header-controls">
-                    <button class="header-btn" onclick="copySessionId()">📋 Copy ID</button>
-                    <button class="header-btn" onclick="clearSession()">🗑️ Clear Chat</button>
-                    <button class="header-btn danger" onclick="deleteSession()">❌ Delete</button>
-                </div>
+
+        <div class="chat-area" id="chatbox"></div>
+
+        <div class="input-area">
+            <div class="file-preview" id="filePreview">
+                <span id="filePreviewName"></span>
+                <button class="remove-file" onclick="removeAttachment()" title="Remove">&#x2715;</button>
             </div>
-            <div class="chat-area" id="chatbox"></div>
-            <div class="input-area">
-                <input type="text" id="message" placeholder="Type your message..." onkeypress="handleKeyPress(event)" autocomplete="off">
-                <button class="send-btn" id="sendButton" onclick="sendMessage()">Send</button>
+            <div class="input-row">
+                <input type="file" id="fileInput" style="display:none" accept="image/*,video/*,audio/*,.pdf,.txt" onchange="onFileChosen(this)">
+                <button class="attach-btn" id="attachBtn" onclick="document.getElementById('fileInput').click()" title="Attach file">&#x1F4CE;</button>
+                <input type="text" class="input-text" id="message" placeholder="Type your message..." onkeypress="handleKeyPress(event)" autocomplete="off">
+                <button class="btn btn-primary" id="sendButton" onclick="sendMessage()">Send</button>
                 <button class="stop-btn" id="stopButton" onclick="stopStream()">Stop</button>
             </div>
         </div>
     </div>
+</div>
+@endsection
 
-    <script>
-        async function uploadAttachment(event) {
-            const fileInput = document.getElementById('fileInput');
-            if (!fileInput.files.length) return;
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-            formData.append('_token', '{{ csrf_token() }}');
-            try {
-                const response = await fetch('/chat/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-                const result = await response.json();
-                if (result.attachment_path) {
-                    alert('File uploaded successfully!');
-                    fileInput.value = '';
-                } else {
-                    alert(result.error || 'Upload failed');
+@push('scripts')
+<script>
+    let pendingAttachmentPath = null;
+
+    function onFileChosen(input) {
+        if (!input.files.length) return;
+        document.getElementById('filePreviewName').textContent = '📎 ' + input.files[0].name;
+        document.getElementById('filePreview').classList.add('visible');
+        document.getElementById('attachBtn').classList.add('has-file');
+        pendingAttachmentPath = null;
+    }
+
+    function removeAttachment() {
+        document.getElementById('fileInput').value = '';
+        document.getElementById('filePreview').classList.remove('visible');
+        document.getElementById('attachBtn').classList.remove('has-file');
+        pendingAttachmentPath = null;
+    }
+
+    async function uploadPendingFile() {
+        const input = document.getElementById('fileInput');
+        if (!input.files.length) return null;
+        const fd = new FormData();
+        fd.append('file', input.files[0]);
+        fd.append('_token', '{{ csrf_token() }}');
+        const res = await fetch('/chat/upload', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error('Upload failed: HTTP ' + res.status);
+        const data = await res.json();
+        if (!data.attachment_path) throw new Error(data.error || 'Upload failed');
+        return data.attachment_path;
+    }
+
+    let currentSessionId = null;
+    let streamAbortController = null;
+    let isStreaming = false;
+
+    async function initializeApp() {
+        try {
+            const res  = await fetch('/session/init', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' } });
+            const data = await res.json();
+            currentSessionId = data.session_id;
+            document.getElementById('currentSessionId').textContent = currentSessionId.substring(0, 8);
+            await loadSessions();
+            await loadSessionMessages();
+        } catch (e) { showError('Failed to initialize: ' + e.message); }
+    }
+
+    async function initNewSession() {
+        try {
+            const res  = await fetch('/session/init', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' } });
+            const data = await res.json();
+            currentSessionId = data.session_id;
+            document.getElementById('currentSessionId').textContent = currentSessionId.substring(0, 8);
+            document.getElementById('chatbox').innerHTML = '';
+            await loadSessions();
+        } catch (e) { showError('Failed to create session: ' + e.message); }
+    }
+
+    async function switchSession(sessionId) {
+        try {
+            const res  = await fetch('/session/switch', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' }, body: JSON.stringify({ session_id: sessionId }) });
+            const data = await res.json();
+            currentSessionId = data.session_id;
+            document.getElementById('currentSessionId').textContent = currentSessionId.substring(0, 8);
+            await loadSessionMessages();
+            await loadSessions();
+        } catch (e) { showError('Failed to switch session: ' + e.message); }
+    }
+
+    async function loadSessions() {
+        try {
+            const res  = await fetch('/sessions');
+            const data = await res.json();
+            const list = document.getElementById('sessionsList');
+            list.innerHTML = '';
+            data.sessions.forEach(s => {
+                const div = document.createElement('div');
+                div.className = 'session-item' + (s.session_id === currentSessionId ? ' active' : '');
+                div.onclick   = () => switchSession(s.session_id);
+                div.textContent = (s.last_message ? s.last_message.substring(0, 32) : 'Empty chat') + '...';
+                list.appendChild(div);
+            });
+        } catch (e) { console.error('loadSessions:', e); }
+    }
+
+    function createBotMessageElement(content, confidence, thinking) {
+        const wrap = document.createElement('div');
+        wrap.className = 'message bot-msg';
+        const body = document.createElement('div');
+        body.className = 'message-content';
+        body.textContent = content;
+        wrap.appendChild(body);
+
+        if (confidence !== null && confidence !== undefined) {
+            const meta = document.createElement('div');
+            meta.className = 'message-meta-row';
+            const badge = document.createElement('div');
+            badge.className = 'confidence-badge ' + (confidence >= 0.8 ? 'confidence-high' : confidence >= 0.5 ? 'confidence-medium' : 'confidence-low');
+            badge.innerHTML = (confidence >= 0.8 ? '🎯' : confidence >= 0.5 ? '⚠️' : '❓') + ' ' + (confidence * 100).toFixed(0) + '%';
+            meta.appendChild(badge);
+            wrap.appendChild(meta);
+        }
+        if (thinking) {
+            const t = document.createElement('div');
+            t.className = 'thinking-text';
+            t.textContent = '💭 ' + thinking;
+            wrap.appendChild(t);
+        }
+        const actions = document.createElement('div');
+        actions.className = 'message-actions';
+        const copy = document.createElement('button');
+        copy.className = 'copy-btn';
+        copy.textContent = 'Copy';
+        copy.onclick = () => copyToClipboard(content, copy);
+        actions.appendChild(copy);
+        wrap.appendChild(actions);
+        return wrap;
+    }
+
+    async function loadSessionMessages() {
+        try {
+            const res  = await fetch('/session');
+            if (!res.ok) return;
+            const data = await res.json();
+            const box  = document.getElementById('chatbox');
+            box.innerHTML = '';
+            data.messages.forEach(msg => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'message user-msg';
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.textContent = msg.user_message;
+                userDiv.appendChild(contentDiv);
+
+                if (msg.meta && msg.meta.attachment) {
+                    const att = msg.meta.attachment;
+                    const isImage = /\.(jpg|jpeg|png|webp|gif)$/i.test(att);
+                    if (isImage) {
+                        const img = document.createElement('img');
+                        img.src = '/storage/' + att;
+                        img.style = 'max-width:120px;max-height:80px;border-radius:4px;margin-top:6px;display:block;';
+                        contentDiv.appendChild(img);
+                    } else {
+                        const badge = document.createElement('span');
+                        badge.style = 'display:inline-block;font-size:11px;background:#d4edda;color:#2d5a38;padding:2px 8px;border-radius:10px;margin-top:4px;';
+                        badge.textContent = '📎 ' + att.split('/').pop();
+                        contentDiv.appendChild(badge);
+                    }
                 }
-            } catch (err) {
-                alert('Upload error');
-            }
-        }
-        let currentSessionId = null;
-        let streamAbortController = null;
-        let isStreaming = false;
+                box.appendChild(userDiv);
+                box.appendChild(createBotMessageElement(msg.bot_reply, null, null));
+            });
+            box.scrollTop = box.scrollHeight;
+        } catch (e) { console.error('loadSessionMessages:', e); }
+    }
 
-        // Initialize session on page load
-        async function initializeApp() {
+    async function sendMessage() {
+        const input   = document.getElementById('message');
+        const message = input.value.trim();
+        if (!message || isStreaming) return;
+
+        if (document.getElementById('fileInput').files.length) {
             try {
-                const response = await fetch('/session/init', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    }
-                });
-                const data = await response.json();
-                currentSessionId = data.session_id;
-                document.getElementById('currentSessionId').textContent = currentSessionId.substring(0, 8);
-                await loadSessions();
-                await loadSessionMessages();
-            } catch (error) {
-                showError('Failed to initialize app: ' + error.message);
-            }
+                pendingAttachmentPath = await uploadPendingFile();
+            } catch (e) { showError('File upload failed: ' + e.message); return; }
         }
 
-        async function initNewSession() {
-            try {
-                const response = await fetch('/session/init', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    }
-                });
-                const data = await response.json();
-                currentSessionId = data.session_id;
-                document.getElementById('currentSessionId').textContent = currentSessionId.substring(0, 8);
-                document.getElementById('chatbox').innerHTML = '';
-                await loadSessions();
-            } catch (error) {
-                showError('Failed to create new session: ' + error.message);
-            }
-        }
+        const box = document.getElementById('chatbox');
+        const userDiv = document.createElement('div');
+        userDiv.className = 'message user-msg';
+        const userContent = document.createElement('div');
+        userContent.className = 'message-content';
+        userContent.textContent = message;
+        userDiv.appendChild(userContent);
+        box.appendChild(userDiv);
+        input.value = '';
+        box.scrollTop = box.scrollHeight;
 
-        async function switchSession(sessionId) {
-            try {
-                const response = await fetch('/session/switch', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    body: JSON.stringify({ session_id: sessionId })
-                });
-                const data = await response.json();
-                currentSessionId = data.session_id;
-                document.getElementById('currentSessionId').textContent = currentSessionId.substring(0, 8);
-                await loadSessionMessages();
-                await loadSessions();
-            } catch (error) {
-                showError('Failed to switch session: ' + error.message);
-            }
-        }
+        isStreaming = true;
+        document.getElementById('sendButton').disabled = true;
+        document.getElementById('stopButton').style.display = 'inline-flex';
 
-        async function loadSessions() {
-            try {
-                const response = await fetch('/sessions');
-                const data = await response.json();
-                const listEl = document.getElementById('sessionsList');
-                listEl.innerHTML = '';
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'message bot-msg';
+        typingDiv.id = 'typingIndicator';
+        typingDiv.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
+        box.appendChild(typingDiv);
+        box.scrollTop = box.scrollHeight;
 
-                data.sessions.forEach(session => {
-                    const div = document.createElement('div');
-                    div.className = 'session-item' + (session.session_id === currentSessionId ? ' active' : '');
-                    div.onclick = () => switchSession(session.session_id);
-                    const preview = session.last_message ? session.last_message.substring(0, 30) : 'Empty chat';
-                    div.textContent = preview + '...';
-                    listEl.appendChild(div);
-                });
-            } catch (error) {
-                console.error('Failed to load sessions:', error);
-            }
-        }
+        streamAbortController = new AbortController();
 
-        function createBotMessageElement(content, confidence = null, thinking = null) {
+        try {
+            const response = await fetch('/chat/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+                body: JSON.stringify({ message, attachment_path: pendingAttachmentPath }),
+                signal: streamAbortController.signal,
+            });
+
+            document.getElementById('typingIndicator')?.remove();
+
+            if (!response.ok) { showError('Server error: HTTP ' + response.status); return; }
+
             const botDiv = document.createElement('div');
             botDiv.className = 'message bot-msg';
-            
-            const botContentDiv = document.createElement('div');
-            botContentDiv.className = 'message-content';
-            botContentDiv.textContent = content;
-            botDiv.appendChild(botContentDiv);
-            
-            // Add metadata if available
-            if (confidence !== null || thinking !== null) {
-                const metaDiv = document.createElement('div');
-                metaDiv.className = 'message-meta';
-                
-                if (confidence !== null) {
-                    const confBadge = document.createElement('div');
-                    confBadge.className = 'confidence-badge';
-                    if (confidence >= 0.8) {
-                        confBadge.classList.add('confidence-high');
-                        confBadge.innerHTML = '🎯 High Confidence (' + (confidence * 100).toFixed(0) + '%)';
-                    } else if (confidence >= 0.5) {
-                        confBadge.classList.add('confidence-medium');
-                        confBadge.innerHTML = '⚠️ Medium Confidence (' + (confidence * 100).toFixed(0) + '%)';
-                    } else {
-                        confBadge.classList.add('confidence-low');
-                        confBadge.innerHTML = '❓ Low Confidence (' + (confidence * 100).toFixed(0) + '%)';
-                    }
-                    metaDiv.appendChild(confBadge);
-                }
-                
-                botDiv.appendChild(metaDiv);
-            }
-            
-            if (thinking) {
-                const thinkingDiv = document.createElement('div');
-                thinkingDiv.className = 'thinking-text';
-                thinkingDiv.textContent = '💭 ' + thinking;
-                botDiv.appendChild(thinkingDiv);
-            }
-            
-            const actionsDiv = document.createElement('div');
-            actionsDiv.className = 'message-actions';
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'copy-btn';
-            copyBtn.textContent = 'Copy';
-            copyBtn.onclick = () => copyToClipboard(content, copyBtn);
-            actionsDiv.appendChild(copyBtn);
-            botDiv.appendChild(actionsDiv);
-            
-            return botDiv;
-        }
+            const botContent = document.createElement('div');
+            botContent.className = 'message-content';
+            botDiv.appendChild(botContent);
+            const actions = document.createElement('div');
+            actions.className = 'message-actions';
+            const copy = document.createElement('button');
+            copy.className = 'copy-btn';
+            copy.textContent = 'Copy';
+            actions.appendChild(copy);
+            botDiv.appendChild(actions);
+            box.appendChild(botDiv);
 
-        async function loadSessionMessages() {
-            try {
-                const response = await fetch('/session');
-                if (!response.ok) return;
-                const data = await response.json();
-                const chatbox = document.getElementById('chatbox');
-                chatbox.innerHTML = '';
+            const reader  = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '', fullResponse = '';
 
-                data.messages.forEach(msg => {
-                    const userDiv = document.createElement('div');
-                    userDiv.className = 'message user-msg';
-                    const contentDiv = document.createElement('div');
-                    contentDiv.className = 'message-content';
-                    contentDiv.textContent = msg.user_message;
-                    userDiv.appendChild(contentDiv);
-
-                    // Minimalistic attachment display
-                    if (msg.meta && msg.meta.attachment) {
-                        const attachDiv = document.createElement('div');
-                        attachDiv.className = 'message-meta';
-                        const link = document.createElement('a');
-                        link.href = '/storage/' + msg.meta.attachment;
-                        link.target = '_blank';
-                        link.textContent = '[Attachment]';
-                        link.style = 'font-size:12px;color:#2d5a38;text-decoration:underline;margin-left:8px;';
-                        attachDiv.appendChild(link);
-                        userDiv.appendChild(attachDiv);
-                    }
-                    chatbox.appendChild(userDiv);
-
-                    const botDiv = createBotMessageElement(msg.bot_reply, null, null);
-                    chatbox.appendChild(botDiv);
-                });
-
-                chatbox.scrollTop = chatbox.scrollHeight;
-            } catch (error) {
-                console.error('Failed to load messages:', error);
-            }
-        }
-
-        async function sendMessage() {
-            const messageInput = document.getElementById('message');
-            const message = messageInput.value.trim();
-            if (!message || isStreaming) return;
-
-            const chatbox = document.getElementById('chatbox');
-            const userDiv = document.createElement('div');
-            userDiv.className = 'message user-msg';
-            const userContentDiv = document.createElement('div');
-            userContentDiv.className = 'message-content';
-            userContentDiv.textContent = message;
-            userDiv.appendChild(userContentDiv);
-            chatbox.appendChild(userDiv);
-
-            messageInput.value = '';
-            chatbox.scrollTop = chatbox.scrollHeight;
-
-            try {
-                isStreaming = true;
-                document.getElementById('sendButton').disabled = true;
-                document.getElementById('stopButton').style.display = 'inline-block';
-
-                // Create typing indicator
-                const typingDiv = document.createElement('div');
-                typingDiv.className = 'message bot-msg';
-                typingDiv.id = 'typingIndicator';
-                const typingContent = document.createElement('div');
-                typingContent.className = 'typing-indicator';
-                for (let i = 0; i < 3; i++) {
-                    const dot = document.createElement('div');
-                    dot.className = 'typing-dot';
-                    typingContent.appendChild(dot);
-                }
-                typingDiv.appendChild(typingContent);
-                chatbox.appendChild(typingDiv);
-                chatbox.scrollTop = chatbox.scrollHeight;
-
-                // Create abort controller for this stream
-                streamAbortController = new AbortController();
-
-                const response = await fetch('/chat/stream', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    body: JSON.stringify({ message }),
-                    signal: streamAbortController.signal
-                });
-
-                // Remove typing indicator
-                const typingEl = document.getElementById('typingIndicator');
-                if (typingEl) typingEl.remove();
-
-                if (!response.ok) {
-                    showError('Server error: HTTP ' + response.status);
-                    isStreaming = false;
-                    document.getElementById('sendButton').disabled = false;
-                    document.getElementById('stopButton').style.display = 'none';
-                    return;
-                }
-
-                // Create bot message div for streaming
-                const botDiv = document.createElement('div');
-                botDiv.className = 'message bot-msg';
-                const botContentDiv = document.createElement('div');
-                botContentDiv.className = 'message-content';
-                botDiv.appendChild(botContentDiv);
-                
-                const actionsDiv = document.createElement('div');
-                actionsDiv.className = 'message-actions';
-                const copyBtn = document.createElement('button');
-                copyBtn.className = 'copy-btn';
-                copyBtn.textContent = 'Copy';
-                actionsDiv.appendChild(copyBtn);
-                botDiv.appendChild(actionsDiv);
-                
-                chatbox.appendChild(botDiv);
-
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-                let fullResponse = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value);
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const jsonStr = line.substring(6);
-                            try {
-                                const data = JSON.parse(jsonStr);
-
-                                if (data.chunk) {
-                                    fullResponse += data.chunk;
-                                    botContentDiv.textContent = fullResponse;
-                                    chatbox.scrollTop = chatbox.scrollHeight;
-                                }
-
-                                if (data.error) {
-                                    showError(data.error);
-                                }
-                                if (data.done) {
-                                    isStreaming = false;
-                                    document.getElementById('sendButton').disabled = false;
-                                    document.getElementById('stopButton').style.display = 'none';
-                                }
-                            } catch (err) {
-                                // Ignore JSON parse errors
-                            }
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value);
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    try {
+                        const data = JSON.parse(line.substring(6));
+                        if (data.chunk) { fullResponse += data.chunk; botContent.textContent = fullResponse; box.scrollTop = box.scrollHeight; }
+                        if (data.error) showError(data.error);
+                        if (data.done) {
+                            isStreaming = false;
+                            document.getElementById('sendButton').disabled = false;
+                            document.getElementById('stopButton').style.display = 'none';
+                            copy.onclick = () => copyToClipboard(fullResponse, copy
+);
+                            removeAttachment();
                         }
-                    }
+                    } catch (_) {}
                 }
-            } catch (error) {
-                showError('Failed to send message: ' + error.message);
-                isStreaming = false;
-                document.getElementById('sendButton').disabled = false;
-                document.getElementById('stopButton').style.display = 'none';
             }
+        } catch (e) {
+            if (e.name !== 'AbortError') showError('Failed to send: ' + e.message);
+            isStreaming = false;
+            document.getElementById('sendButton').disabled = false;
+            document.getElementById('stopButton').style.display = 'none';
         }
+    }
 
-        function stopStream() {
-            if (streamAbortController) {
-                streamAbortController.abort();
-                isStreaming = false;
-                document.getElementById('sendButton').disabled = false;
-                document.getElementById('stopButton').style.display = 'none';
-                const typingEl = document.getElementById('typingIndicator');
-                if (typingEl) typingEl.remove();
-            }
-        }
+    function stopStream() {
+        streamAbortController?.abort();
+        isStreaming = false;
+        document.getElementById('sendButton').disabled = false;
+        document.getElementById('stopButton').style.display = 'none';
+        document.getElementById('typingIndicator')?.remove();
+    }
 
-        function copyToClipboard(text, button) {
-            navigator.clipboard.writeText(text).then(() => {
-                const originalText = button.textContent;
-                button.textContent = '✓ Copied';
-                button.classList.add('copied');
-                setTimeout(() => {
-                    button.textContent = originalText;
-                    button.classList.remove('copied');
-                }, 2000);
-            }).catch(err => {
-                console.error('Failed to copy:', err);
-                showError('Failed to copy to clipboard');
-            });
-        }
+    function copyToClipboard(text, btn) {
+        navigator.clipboard.writeText(text).then(() => {
+            btn.textContent = '✓ Copied';
+            btn.classList.add('copied');
+            setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+        });
+    }
 
-        function copySessionId() {
-            copyToClipboard(currentSessionId, { textContent: '📋 Copy ID', classList: { add: () => {}, remove: () => {} } });
-            setTimeout(() => alert('Session ID copied: ' + currentSessionId), 100);
-        }
+    function copySessionId() {
+        navigator.clipboard.writeText(currentSessionId).then(() => alert('Session ID copied: ' + currentSessionId));
+    }
 
-        async function clearSession() {
-            if (!confirm('Are you sure you want to clear this conversation? This cannot be undone.')) return;
-            
-            document.getElementById('chatbox').innerHTML = '';
-            showError('Conversation cleared');
-        }
+    function clearSession() {
+        if (!confirm('Clear this conversation?')) return;
+        document.getElementById('chatbox').innerHTML = '';
+    }
 
-        async function deleteSession() {
-            if (!confirm('Are you sure you want to delete this session? This cannot be undone.')) return;
-            
-            try {
-                // Delete current session from database
-                await fetch('/session/delete', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    body: JSON.stringify({ session_id: currentSessionId })
-                });
+    async function deleteSession() {
+        if (!confirm('Delete this session? This cannot be undone.')) return;
+        try {
+            await fetch('/session/delete', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' }, body: JSON.stringify({ session_id: currentSessionId }) });
+            await initNewSession();
+            showError('✓ Session deleted');
+        } catch (e) { showError('Failed to delete: ' + e.message); }
+    }
 
-                // Create a new session
-                await initNewSession();
-                showError('✓ Session deleted');
-            } catch (error) {
-                showError('Failed to delete session: ' + error.message);
-            }
-        }
+    function showError(msg) {
+        const box = document.getElementById('chatbox');
+        const div = document.createElement('div');
+        div.className = 'message system-msg';
+        div.innerHTML = '<div class="message-content">' + msg + '</div>';
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+    }
 
-        function showError(message) {
-            const chatbox = document.getElementById('chatbox');
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'message error-msg';
-            errorDiv.textContent = message;
-            chatbox.appendChild(errorDiv);
-            chatbox.scrollTop = chatbox.scrollHeight;
-        }
+    function handleKeyPress(e) { if (e.key === 'Enter' && !isStreaming) sendMessage(); }
 
-        function handleKeyPress(event) {
-            if (event.key === 'Enter' && !isStreaming) {
-                sendMessage();
-            }
-        }
-
-        // Initialize on load
-        window.addEventListener('load', initializeApp);
-        window.sendMessage = sendMessage;
-        window.handleKeyPress = handleKeyPress;
-    </script>
-</body>
-</html>
+    window.addEventListener('load', initializeApp);
+</script>
+@endpush

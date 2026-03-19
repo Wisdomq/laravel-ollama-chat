@@ -2,22 +2,21 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Chat;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Storage;
-use App\Models\Chat;
 
 class AttachmentController extends Controller
 {
     public function upload(Request $request)
     {
         $sessionId = $request->session()->get('chat_session_id');
-        if (!$sessionId) {
+        if (! $sessionId) {
             $sessionId = Str::uuid()->toString();
             $request->session()->put('chat_session_id', $sessionId);
         }
 
-        if (!$request->hasFile('file')) {
+        if (! $request->hasFile('file')) {
             return response()->json(['error' => 'No file uploaded'], 400);
         }
 
