@@ -1,59 +1,248 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Laravel Ollama Chat 💬
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A Laravel 12 multi-provider AI chatbot with tool-based intent classification, session management, streaming responses, and an integrated **ComfyUI workflow generation** pipeline. Supports Ollama, OpenAI, Mistral, Gemini, Groq, Anthropic, and many more AI providers out of the box.
 
-## About Laravel
+---
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Overview
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Laravel Ollama Chat is a full-stack conversational AI application. It routes user messages through a pattern-based intent classifier to decide whether to respond conversationally or invoke a specialized tool (workout generator, travel itinerary planner, TikTok trends finder, etc.). The app also includes a separate workflow pipeline that lets users upload files, refine prompts with an LLM, and dispatch ComfyUI generation jobs.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+---
 
-## Learning Laravel
+## Architecture
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+```
+User Message
+    │
+    ▼
+ChatController::classifyIntent()
+    │  Pattern matching → "conversational" or "task"
+    ├── conversational → ChatbotAgent (Ollama LLM, plain text response)
+    │
+    └── task → ToolMatcher → matching Tool
+                   │  Keyword scoring against tool descriptions
+                   ▼
+              AgentGeneralService
+                   │  Executes tool, returns structured result
+                   ▼
+              ChatbotAgent (wraps result in natural language)
+```
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+---
 
-## Laravel Sponsors
+## Features
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+- **Multi-provider AI** — switch between Ollama, OpenAI, Mistral, Gemini, Groq, Anthropic, DeepSeek, xAI, Cohere, ElevenLabs, and more via `config/ai.php`
+- **Session management** — persistent conversation history per session; switch between multiple sessions
+- **Streaming responses** — real-time token streaming via `/chat/stream`
+- **Intent classification** — fast regex rules first, LLM fallback for ambiguous cases
+- **Tool matching** — keyword-scored tool selection; automatically routes to the most relevant tool
+- **File/attachment upload** — users can attach files to chat messages
+- **ComfyUI workflow pipeline** — dedicated workflow UI for image/video generation with prompt refinement
+- **Dockerized** — includes `compose.yaml` for containerized deployment with Sail
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## Available Tools
 
-## Contributing
+Located in `app/Ai/Tools/`:
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+| Tool | Description |
+|---|---|
+| `WorkoutRoutineGeneratorTool` | Generates personalized workout routines |
+| `TouristAttractionsInDestinationTool` | Finds tourist attractions for a given destination |
+| `FindAccommodationOptionsTool` | Searches for accommodation options |
+| `FindAccommodationsForFiveDaysTool` | Plans 5-day accommodation itinerary |
+| `PopularDestinations7DaysTool` | Suggests popular destinations for a 7-day trip |
+| `BookTravelItineraryTool` | Creates a full travel itinerary and booking plan |
+| `TopTikTokTrendsTool` | Fetches current TikTok trends |
 
-## Code of Conduct
+New tools can be added by implementing the `Tool` contract and dropping a new class into `app/Ai/Tools/`.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+---
 
-## Security Vulnerabilities
+## Intent Classification
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+The `ChatController` uses two-stage classification:
+
+**Stage 1 — Fast regex patterns:**
+
+- Task patterns include keywords like `find`, `search`, `generate`, `calculate`, `trip`, `workout`, `recipe`, math expressions, and file extensions.
+- Conversational patterns include greetings, emotional statements, acknowledgements, and questions about the agent itself.
+- Time/date queries always route to `task` (LLMs hallucinate incorrect times).
+
+**Stage 2 — LLM fallback** for messages that don't match either pattern set.
+
+Short messages (≤ 2 words) are always classified as `conversational`.
+
+---
+
+## Routes
+
+### Chat
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/chat` | Chat interface view |
+| `POST` | `/chat` | Send a message (non-streaming) |
+| `POST` | `/chat/stream` | Send a message with streaming response |
+| `POST` | `/chat/upload` | Upload an attachment |
+| `POST` | `/session/init` | Initialize a new chat session |
+| `GET` | `/session` | Get current session info |
+| `GET` | `/sessions` | List all sessions |
+| `POST` | `/session/switch` | Switch to a different session |
+| `POST` | `/session/delete` | Delete a session |
+
+### Workflow Pipeline
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/` | Landing page |
+| `GET` | `/workflow` | Workflow creation UI |
+| `POST` | `/workflow/upload` | Upload a file for workflow input |
+| `POST` | `/workflow/refine` | LLM-refine the workflow prompt |
+| `POST` | `/workflow/approve` | Approve and dispatch the workflow job |
+| `POST` | `/workflow/reset` | Reset current workflow session |
+| `GET` | `/workflow/generations` | View past generations |
+| `GET` | `/workflow/status/{jobId}` | Poll job execution status |
+| `GET` | `/workflow/result/{jobId}` | View generation result |
+
+---
+
+## Database Schema
+
+| Table | Description |
+|---|---|
+| `chats` | Chat messages with session_id, user_message, bot_reply |
+| `agent_conversations` | Agent conversation state |
+| `workflows` | Workflow definitions |
+| `workflow_jobs` | Dispatched ComfyUI job tracking |
+
+---
+
+## AI Configuration
+
+All providers are configured in `config/ai.php`. The default text provider is set to `mistral`.
+
+```php
+// config/ai.php
+'default' => 'mistral',
+'default_for_images' => 'gemini',
+'default_for_audio' => 'openai',
+```
+
+Set API keys in `.env`:
+
+```env
+MISTRAL_API_KEY=
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+GEMINI_API_KEY=
+GROQ_API_KEY=
+DEEPSEEK_API_KEY=
+ELEVENLABS_API_KEY=
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+```
+
+---
+
+## ComfyUI Integration
+
+ComfyUI endpoint is configured in `config/comfyui.php`. The `ComfyUIService` handles job submission and status polling. Workflow generation follows a multi-step review flow:
+
+1. User uploads input (optional) and writes a prompt
+2. `WorkflowOptimizerAgent` refines the prompt
+3. User approves the refined prompt
+4. Job is dispatched to ComfyUI via `WorkflowJob`
+5. User polls `/workflow/status/{jobId}` until complete
+6. Result available at `/workflow/result/{jobId}`
+
+---
+
+## Setup
+
+### Requirements
+
+- PHP 8.5+
+- Laravel 12
+- Composer
+- Node.js + NPM
+- Docker + Sail (recommended)
+- Ollama (local) or any supported cloud provider key
+
+### Installation with Sail (Docker)
+
+```bash
+# Clone and install
+composer install
+
+# Copy env
+cp .env.example .env
+php artisan key:generate
+
+# Set your AI provider keys in .env (at minimum, set OLLAMA_BASE_URL or a cloud key)
+
+# Start Docker services
+vendor/bin/sail up -d
+
+# Run migrations
+vendor/bin/sail artisan migrate
+
+# Seed workflows (optional)
+vendor/bin/sail artisan db:seed
+
+# Build frontend
+vendor/bin/sail npm run build
+
+# Start queue worker
+vendor/bin/sail artisan queue:work
+```
+
+### Direct Installation
+
+```bash
+composer install
+npm install && npm run build
+cp .env.example .env && php artisan key:generate
+php artisan migrate
+php artisan serve
+```
+
+---
+
+## ChatbotAgent
+
+The `ChatbotAgent` implements `Agent` and `Conversational` from Laravel AI. It loads the last 20 chat messages from the database as conversation history for context, ensuring coherent multi-turn responses without blowing up the context window.
+
+Key instructions:
+- Plain text only — no JSON, no markdown headers
+- Present tool results naturally without embellishment
+- Keep responses concise and friendly
+
+---
+
+## Tech Stack
+
+- **Laravel 12** — PHP framework
+- **Laravel AI** — Agent/Tool abstraction layer
+- **Laravel Sail** — Docker development environment
+- **Ollama** — Local LLM inference
+- **ComfyUI** — Image/video generation backend
+- **Blade** — Templating
+
+---
+
+## Development Notes
+
+This project follows Laravel Boost guidelines (see `AGENTS.md` / `CLAUDE.md`):
+- PHP 8.5, Laravel 12 streamlined structure
+- All commands via `vendor/bin/sail`
+- PHPUnit for testing (`vendor/bin/sail artisan test`)
+- Code formatting via Pint (`vendor/bin/sail bin pint`)
+
+---
 
 ## License
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+This project is unlicensed. All rights reserved to the author.
